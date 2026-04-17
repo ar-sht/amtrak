@@ -1,23 +1,23 @@
 import pandas as pd
 import re
 import networkx as nx
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 
-routes = pd.read_excel("route-data.xlsx")["name"]
-stations = pd.read_excel("station-data.xlsx")
-station_coords = (
-    stations.dropna(subset=["Code", "lon", "lat"])
-    .drop_duplicates(subset=["Code"])
-    .set_index("Code")[["lon", "lat"]]
-    .to_dict("index")
-)
 
-with open("route-stop-data.txt", "r") as route_stop_txt:
-    txt = route_stop_txt.read()
+def load_station_coords(path="station-data.xlsx"):
+    stations = pd.read_excel(path)
+    return (
+        stations.dropna(subset=["Code", "lon", "lat"])
+        .drop_duplicates(subset=["Code"])
+        .set_index("Code")[["lon", "lat"]]
+        .to_dict("index")
+    )
 
-    route_stop_dict = dict([(route, []) for route in routes])
+
+def load_route_stops(routes, path="route-stop-data.txt"):
+    with open(path, "r") as route_stop_txt:
+        txt = route_stop_txt.read()
+
+    route_stop_dict = {route: [] for route in routes}
 
     for route in routes:
         route_pattern = re.escape(route)
@@ -30,21 +30,24 @@ with open("route-stop-data.txt", "r") as route_stop_txt:
             .group(0)
             .split("\n")
         )
-        stop_codes = [
+        route_stop_dict[route] = [
             re.search(r"\(.*?\)", stop_txt, flags=re.DOTALL)
             .group(0)
             .replace("(", "")
             .replace(")", "")
             for stop_txt in stop_txts[1:]
         ]
-        route_stop_dict[route] = stop_codes
 
-with open("ridership-data.txt", "r") as ridership_txt:
-    txt = ridership_txt.read().split("\n")
+    return route_stop_dict
 
-    route_weight_dict = dict([(route, []) for route in routes])
 
-    for row in txt:
+def load_route_weights(routes, path="ridership-data.txt"):
+    with open(path, "r") as ridership_txt:
+        rows = ridership_txt.read().split("\n")
+
+    route_weight_dict = {route: [] for route in routes}
+
+    for row in rows:
         match = re.match(
             r"^(.*?)\s+((?:\(?[\d,.-]+\)?|-)(?:\s+(?:\(?[\d,.-]+\)?|-))*)$",
             row.strip(),
@@ -54,89 +57,78 @@ with open("ridership-data.txt", "r") as ridership_txt:
 
         route_name = match.group(1)
         metrics = match.group(2).split()
-
         route_weight_dict[route_name] = float(metrics[4].replace(",", ""))
 
+    return route_weight_dict
 
-G = nx.Graph()
 
-route_graphs = dict([(route, None) for route in routes])
-
-for route in routes:
-    stops = route_stop_dict[route]
-    weight = route_weight_dict[route]
-    route_graph = nx.Graph()
-
-    e = []
-    for i in range(len(stops) - 1):
-        e.append((stops[i], stops[i + 1], weight))
-
-    route_graph.add_weighted_edges_from(e)
-    route_graphs[route] = route_graph
-
-    for u, v, weight in e:
-        if G.has_edge(u, v):
-            G[u][v]["weight"] += weight
+def annotate_graph_with_coords(graph, station_coords):
+    missing_nodes = []
+    for node in graph.nodes:
+        coord = station_coords.get(node)
+        if coord:
+            graph.nodes[node]["lon"] = float(coord["lon"])
+            graph.nodes[node]["lat"] = float(coord["lat"])
         else:
-            G.add_edge(u, v, weight=weight)
+            missing_nodes.append(node)
+    return missing_nodes
 
-for node in G.nodes:
-    coord = station_coords.get(node)
-    if coord:
-        G.nodes[node]["lon"] = float(coord["lon"])
-        G.nodes[node]["lat"] = float(coord["lat"])
 
-pos = {
-    node: (attrs["lon"], attrs["lat"])
-    for node, attrs in G.nodes(data=True)
-    if "lon" in attrs and "lat" in attrs
-}
+def build_network():
+    routes = pd.read_excel("route-data.xlsx")["name"].tolist()
+    station_coords = load_station_coords()
+    route_stop_dict = load_route_stops(routes)
+    route_weight_dict = load_route_weights(routes)
 
-missing_nodes = sorted(set(G.nodes) - set(pos))
-if missing_nodes:
-    print("Missing coordinates for:", ", ".join(missing_nodes))
+    graph = nx.Graph()
 
-fig = plt.figure(figsize=(16, 10))
-ax = plt.axes(projection=ccrs.LambertConformal())
-ax.set_extent([-130, -60, 20, 60], crs=ccrs.PlateCarree())
-ax.add_feature(cfeature.LAND, facecolor="#f3efe6")
-ax.add_feature(cfeature.OCEAN, facecolor="#dbe9f4")
-ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
-ax.add_feature(cfeature.BORDERS, linewidth=0.6)
-ax.add_feature(cfeature.STATES, linewidth=0.25, edgecolor="#999999")
-ax.gridlines(
-    draw_labels=False,
-    linewidth=0.3,
-    color="#999999",
-    alpha=0.4,
-    linestyle="--",
-)
+    for route in routes:
+        stops = route_stop_dict[route]
+        weight = route_weight_dict[route] / len(stops)
+        edges = []
 
-if pos:
-    for u, v, attrs in G.edges(data=True):
-        if u in pos and v in pos:
-            ax.plot(
-                [pos[u][0], pos[v][0]],
-                [pos[u][1], pos[v][1]],
-                color="#b03a2e",
-                alpha=0.35,
-                linewidth=max(attrs["weight"] / 400, 0.4),
-                transform=ccrs.PlateCarree(),
+        for i in range(len(stops) - 1):
+            edges.append((stops[i], stops[i + 1], weight))
+
+        for u, v, edge_weight in edges:
+            if graph.has_edge(u, v):
+                graph[u][v]["weight"] += edge_weight
+            else:
+                graph.add_edge(u, v, weight=edge_weight)
+
+    route_graphs = {}
+    for route in routes:
+        stops = route_stop_dict[route]
+        edges = []
+
+        for i in range(len(stops) - 1):
+            edges.append(
+                (stops[i], stops[i + 1], graph[stops[i]][stops[i + 1]]["weight"])
             )
 
-    xs = [coords[0] for coords in pos.values()]
-    ys = [coords[1] for coords in pos.values()]
-    ax.scatter(
-        xs,
-        ys,
-        s=12,
-        color="#1f4e79",
-        linewidths=0,
-        transform=ccrs.PlateCarree(),
-        zorder=3,
-    )
+        G = nx.Graph()
+        G.add_weighted_edges_from(edges)
 
-ax.set_title("Amtrak Network by Station Geography", fontsize=18, pad=14)
-plt.tight_layout()
-plt.savefig("network-map.png", dpi=300, bbox_inches="tight")
-plt.show()
+        route_graphs[route] = G
+
+    missing_nodes = annotate_graph_with_coords(graph, station_coords)
+    route_missing_nodes = {}
+
+    for route, route_graph in route_graphs.items():
+        route_missing_nodes[route] = annotate_graph_with_coords(
+            route_graph, station_coords
+        )
+
+    return graph, route_graphs, missing_nodes, route_missing_nodes
+
+
+G, route_graphs, missing_nodes, route_missing_nodes = build_network()
+
+
+if __name__ == "__main__":
+    from display import display_graph
+
+    if missing_nodes:
+        print("Missing coordinates for:", ", ".join(sorted(missing_nodes)))
+
+    display_graph(G, output_path="network-map.png")
