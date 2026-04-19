@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -190,7 +190,12 @@
     <li><strong>Edge weights</strong> represent ridership intensity. For a given route, the total route ridership is divided equally among its segments (total ridership &divide; number of stops). When multiple routes share the same segment (e.g. the Acela and Northeast Regional both run NYP&rarr;NWK), their weights are summed. This produces a single combined ridership weight per edge.</li>
 </ul>
 
-<p>The resulting graph contains <strong>537 stations and 612 edges</strong>, with a largest connected component of <strong>523 stations</strong> (97.4% of the network).</p>
+<p>The resulting graph contains <strong>537 stations and 612 edges</strong>, with a largest connected component of <strong>523 stations</strong> (97.4% of the network). The remaining 14 stations form two small isolated components that reflect real gaps in the rail network:</p>
+<ul>
+    <li><strong>Downeaster component (12 stations):</strong> Boston North Station (BON) through Brunswick, ME. Disconnected from the main network because Boston North and Boston South are separate terminals on opposite sides of the city with no direct through-track.</li>
+    <li><strong>Auto Train component (2 stations):</strong> Lorton, VA (LOR) and Sanford, FL (SFA). The Auto Train is a point-to-point service with no intermediate stops, so it appears as an isolated pair.</li>
+</ul>
+<p>These disconnected stations are excluded from the largest-component robustness analysis (denominator = 523).</p>
 
 <hr>
 
@@ -232,7 +237,8 @@
 <h2>3. How We Computed Each Metric</h2>
 
 <h3>Betweenness centrality</h3>
-<p>Computed using NetworkX's <code>betweenness_centrality()</code> function over the full weighted graph. The algorithm considers edge weights when computing shortest paths (lower weight = shorter path), and normalizes scores to $[0, 1]$. All 537 stations receive a centrality score; we rank them and extract the top 10.</p>
+<p>Computed using NetworkX's <code>betweenness_centrality()</code> function over the full graph with edge weights that reflect passenger flow. Because our raw edge weights encode <em>ridership</em> (higher = busier corridor) but NetworkX treats the weight attribute as a Dijkstra <em>cost</em> (higher = longer path), we invert the raw weight into a cost: <code>cost = 1 / ridership</code>. Busy corridors then become &ldquo;short&rdquo; and shortest paths preferentially route through high-ridership segments. Centrality scores are normalized to $[0, 1]$ and every one of the 537 stations receives a score; we rank them and extract the top 10.</p>
+<p><em>Note on methodology:</em> we initially passed raw ridership as the weight, which NetworkX interprets as distance (higher = further apart) &mdash; the opposite of what we intended. Inverting ridership to a cost gives the semantically correct flow-weighted centrality. The unweighted sensitivity check in Section 4 confirms the top 8 stations are robust to this choice.</p>
 
 <h3>Targeted removal experiment</h3>
 <p>Starting from the intact network, we sequentially remove the station with the highest betweenness centrality, then the second-highest, and so on up to 10 removals. After each removal, we measure the size of the largest connected component. This simulates a worst-case coordinated attack on the network's most critical nodes.</p>
@@ -246,6 +252,13 @@
 <h3>Edge weight distribution</h3>
 <p>We collect the ridership weight of all 612 edges and plot their distribution on a log scale to visualize the long tail from low-traffic rural segments to high-traffic urban corridors.</p>
 
+<h3>Limitations</h3>
+<ul>
+    <li><strong>Ridership is split uniformly along each route's segments</strong> (route ridership &divide; number of stops). Real passenger flows are endpoint-heavy &mdash; most riders board at major stations and ride partway &mdash; but station-level origin-destination data is not publicly available. This likely over-weights small rural middle-of-route segments and under-weights urban endpoints.</li>
+    <li><strong>Edge weights represent annual ridership only.</strong> Train frequency (e.g. Empire Service running many daily trains vs. Cardinal running three per week) is not modeled as a separate factor, though it is partially captured by ridership totals.</li>
+    <li><strong>Robustness is measured by largest-connected-component size,</strong> which treats &ldquo;still connected&rdquo; and &ldquo;connected via a 3&times; detour&rdquo; identically. A more refined measure (e.g. network efficiency) would penalize lengthened paths, but component size is the standard intro-networks metric and suffices for the targeted-vs-random comparison.</li>
+</ul>
+
 <hr>
 
 <!-- ====== Section 4 ====== -->
@@ -258,25 +271,25 @@
         <tr><th>Rank</th><th>Station Code</th><th>Betweenness Centrality</th><th>Degree</th><th>Role</th></tr>
     </thead>
     <tbody>
-        <tr><td>1</td><td><strong>CHI</strong> (Chicago Union Station)</td><td>0.5614</td><td>9</td><td>Primary national hub &mdash; highest centrality <em>and</em> highest degree</td></tr>
-        <tr><td>2</td><td><strong>CLE</strong> (Cleveland)</td><td>0.2629</td><td>3</td><td>East&ndash;Midwest bridge</td></tr>
-        <tr><td>3</td><td><strong>SOB</strong> (South Bend)</td><td>0.2541</td><td>2</td><td>Bottleneck on Chicago&ndash;East corridor</td></tr>
-        <tr><td>4</td><td><strong>EKH</strong> (Elkhart, IN)</td><td>0.2521</td><td>2</td><td>Bottleneck on Chicago&ndash;East corridor</td></tr>
-        <tr><td>5</td><td><strong>WTI</strong> (Waterloo, IN)</td><td>0.2501</td><td>3</td><td>Midwest junction</td></tr>
-        <tr><td>6</td><td><strong>NOL</strong> (New Orleans)</td><td>0.2463</td><td>4</td><td>Southern hub &mdash; links Gulf Coast to eastern network</td></tr>
-        <tr><td>7</td><td><strong>TOL</strong> (Toledo, OH)</td><td>0.2462</td><td>3</td><td>Ohio corridor bottleneck</td></tr>
-        <tr><td>8</td><td><strong>SKY</strong> (Sandusky, OH)</td><td>0.2442</td><td>2</td><td>Bottleneck in Ohio corridor</td></tr>
-        <tr><td>9</td><td><strong>ELY</strong> (Elyria, OH)</td><td>0.2423</td><td>2</td><td>Bottleneck in Ohio corridor</td></tr>
-        <tr><td>10</td><td><strong>NPV</strong> (Naperville, IL)</td><td>0.2047</td><td>5</td><td>Chicago suburban junction</td></tr>
+        <tr><td>1</td><td><strong>CHI</strong> (Chicago Union Station)</td><td>0.6145</td><td>9</td><td>Primary national hub &mdash; highest centrality <em>and</em> highest degree</td></tr>
+        <tr><td>2</td><td><strong>CLE</strong> (Cleveland)</td><td>0.4362</td><td>3</td><td>East&ndash;Midwest bridge on the Lake Shore corridor</td></tr>
+        <tr><td>3</td><td><strong>SOB</strong> (South Bend)</td><td>0.4362</td><td>2</td><td>Bottleneck on Chicago&ndash;East corridor</td></tr>
+        <tr><td>4</td><td><strong>EKH</strong> (Elkhart, IN)</td><td>0.4354</td><td>2</td><td>Bottleneck on Chicago&ndash;East corridor</td></tr>
+        <tr><td>5</td><td><strong>WTI</strong> (Waterloo, IN)</td><td>0.4346</td><td>3</td><td>Midwest junction on Chicago&ndash;East corridor</td></tr>
+        <tr><td>6</td><td><strong>TOL</strong> (Toledo, OH)</td><td>0.4330</td><td>3</td><td>Ohio corridor junction</td></tr>
+        <tr><td>7</td><td><strong>SKY</strong> (Sandusky, OH)</td><td>0.4322</td><td>2</td><td>Bottleneck in Ohio corridor</td></tr>
+        <tr><td>8</td><td><strong>ELY</strong> (Elyria, OH)</td><td>0.4314</td><td>2</td><td>Bottleneck in Ohio corridor</td></tr>
+        <tr><td>9</td><td><strong>BUF</strong> (Buffalo)</td><td>0.4226</td><td>3</td><td>Empire Corridor gateway into New York State</td></tr>
+        <tr><td>10</td><td><strong>SDY</strong> (Schenectady)</td><td>0.4167</td><td>4</td><td>Empire Corridor junction west of Albany</td></tr>
     </tbody>
 </table>
 
 <h3>Notable patterns</h3>
 <ul>
-    <li><strong>Chicago (CHI)</strong> dominates with a centrality score more than <strong>2&times; higher</strong> than any other station and <strong>18&times; the network median</strong> (0.031).</li>
-    <li><strong>8 of the top 10 hubs are in the Midwest</strong> corridor between Chicago and Cleveland. Only New Orleans (NOL) lies outside this geographic cluster.</li>
-    <li>Most of the top hubs have <strong>low degree (2&ndash;3)</strong> despite their extreme centrality. They are bottlenecks &mdash; the <em>only</em> path between large regions passes through them &mdash; rather than multi-way junctions.</li>
-    <li>CHI is the sole exception: both a connector (degree 9) and a bottleneck (centrality 0.56).</li>
+    <li><strong>Chicago (CHI)</strong> has the highest centrality at <strong>0.61</strong>, roughly <strong>1.4&times; the next-highest</strong> station (CLE at 0.44) and <strong>25&times; the network median</strong> (0.024).</li>
+    <li>The top 10 all lie along a single east&ndash;west flow axis from <strong>Chicago through Indiana, Ohio, and upstate New York</strong>. The Lake Shore Limited and Empire Service together carry so much of the network's passenger flow that nearly every station along that chain ends up with near-identical centrality.</li>
+    <li>Ranks 2&ndash;10 are <strong>very tightly bunched</strong> (0.42&ndash;0.44, a spread of less than 0.02). This means the <em>ordering</em> among ranks 2&ndash;10 is not individually meaningful &mdash; they should be read as a single group of corridor stations, not a strict ranking. The meaningful distinction is between CHI, this corridor group, and everything else.</li>
+    <li>Most of the top hubs have <strong>low degree (2&ndash;3)</strong>. They are bottlenecks &mdash; the <em>only</em> flow-weighted shortest path between large regions passes through them &mdash; rather than multi-way junctions. CHI is the sole exception: both a connector (degree 9) and a bottleneck (centrality 0.61).</li>
 </ul>
 
 <h3>Highest-ridership corridors</h3>
@@ -297,6 +310,12 @@
 
 <p>All five are in the <strong>Northeast Corridor</strong>, carrying 36&times; the median ridership of 6.7.</p>
 
+<h3>Sensitivity check</h3>
+<p>To verify that the top-10 ranking is not an artifact of our specific weighting choice, we also computed betweenness under an <strong>unweighted</strong> model (pure topology, every edge has equal cost). The top 8 stations are <strong>identical</strong> in both schemes: CHI, CLE, SOB, EKH, WTI, TOL, SKY, ELY. Only ranks 9&ndash;10 differ (BUF/SDY under flow-weighting vs. NPV/SAC under unweighted). This confirms the main finding &mdash; CHI as the dominant hub with a linear corridor of critical stations to its east &mdash; is a property of the network's structure, not of the weighting scheme.</p>
+
+<h3>Note on network type</h3>
+<p>The degree distribution is heavy-tailed with one extreme outlier (CHI at degree 9), consistent with a hub-and-chain topology. With only 537 nodes we do not claim a formal power-law fit; the distribution is better described qualitatively as &ldquo;one dominant hub, a handful of minor junctions, and long linear chains&rdquo; than as a true scale-free network in the Barab&aacute;si&ndash;Albert sense.</p>
+
 <hr>
 
 <!-- ====== Section 5 ====== -->
@@ -304,14 +323,14 @@
 
 <div class="graph-section">
     <h3>Graph 1: Targeted vs Random Station Removal</h3>
-    <img src="graphs/hub-robustness.png" alt="Hub Robustness — Targeted vs Random Removal">
+    <img src="graphs/hub-robustness.png" alt="Hub Robustness â€” Targeted vs Random Removal">
     <p><strong>What it shows:</strong> Two curves plotted against the number of stations removed (0&ndash;10). The red solid line shows what happens when stations are removed in order of betweenness centrality (targeted attack). The blue dashed line shows what happens when stations are removed randomly (averaged over 100 trials). The shaded pink region between them highlights the &ldquo;vulnerability gap.&rdquo; The right y-axis shows the percentage of the original network remaining.</p>
     <p><strong>Key observations:</strong></p>
     <ul>
-        <li>Removing just <strong>CHI</strong> drops connectivity to 95%. The first 5 targeted removals hold the component at ~94% (489 stations) &mdash; the Midwest corridor is being chipped away.</li>
-        <li>At removal <strong>#6 (NOL)</strong>, a catastrophic collapse occurs: the network drops from 94% to <strong>52%</strong> in a single step. New Orleans was the last link holding the southern and western halves of the network together.</li>
-        <li>After 10 targeted removals, only <strong>269 stations (51%)</strong> remain connected.</li>
-        <li>Random removal of 10 stations barely matters: <strong>~92% connectivity</strong> is preserved. The network is resilient to accidental failures.</li>
+        <li>Removing just <strong>CHI</strong> drops connectivity to 95% (499 stations). The next several removals (CLE through ELY) hold the component steady at <strong>~94% (491 stations)</strong> &mdash; these stations are all adjacent along the same corridor, so removing one already cuts off the segment the next would have influenced.</li>
+        <li>After 10 targeted removals, <strong>459 stations (87.8%)</strong> remain connected.</li>
+        <li>Random removal of 10 stations preserves <strong>~92% connectivity</strong>.</li>
+        <li>The &ldquo;vulnerability gap&rdquo; between targeted and random removal is therefore only about <strong>4 percentage points</strong>. When centrality is correctly weighted by passenger flow, the top-10 stations are not global articulation points &mdash; they cluster on one corridor, so removing them just chips away at that corridor rather than fragmenting the entire network. (Removing CHI alone remains the single most damaging action.)</li>
     </ul>
 </div>
 
@@ -335,7 +354,7 @@
     <p><strong>What it shows:</strong> A histogram of betweenness centrality across all 537 stations. The dashed vertical red line marks the top-10 threshold. The top 3 outliers (CHI, CLE, SOB) are individually labeled. An inset box reports the median and maximum values.</p>
     <p><strong>Key observations:</strong></p>
     <ul>
-        <li>The distribution is <strong>extremely right-skewed</strong>: the median centrality is 0.031, while the maximum (CHI) is 0.561 &mdash; <strong>18&times; the median</strong>.</li>
+        <li>The distribution is <strong>extremely right-skewed</strong>: the median centrality is 0.024, while the maximum (CHI) is 0.61 &mdash; <strong>25&times; the median</strong>.</li>
         <li>The vast majority of stations cluster near zero centrality. Most stations are not structurally important.</li>
         <li>There is a clear gap between the &ldquo;body&rdquo; of the distribution and the top-10 outliers, confirming that hub importance is not a continuum but a sharp divide between critical and non-critical stations.</li>
     </ul>
@@ -347,10 +366,10 @@
     <p><strong>What it shows:</strong> A map of the continental United States with all 537 stations plotted as points. The top 10 hubs are shown as large circles sized and colored by centrality (darker red = higher centrality), with labeled leader lines showing rank and station code. All other stations appear as small grey dots. Edges are drawn with thickness proportional to ridership.</p>
     <p><strong>Key observations:</strong></p>
     <ul>
-        <li><strong>8 of the top 10 hubs cluster in the Midwest</strong>, forming a tight arc from Chicago through Indiana and Ohio. This geographic concentration means a single regional event (severe weather, flooding, infrastructure failure) could simultaneously disable multiple top hubs.</li>
-        <li><strong>NOL (New Orleans)</strong> stands alone in the South as the critical junction linking Gulf Coast, Southeast, and Western routes.</li>
-        <li>Despite the dense station coverage in the Northeast Corridor (visible as a thick line of dots from Boston to Washington), no NEC station appears in the top 10 &mdash; the NEC's mesh-like topology means no single station there is a bottleneck.</li>
-        <li>The Western United States has sparse, long-distance routes with minimal redundancy.</li>
+        <li><strong>All 10 top hubs lie along a single east&ndash;west corridor</strong> from Chicago through Indiana and Ohio to upstate New York (BUF, SDY) &mdash; essentially the Lake Shore Limited / Empire Service flow axis. A regional event (severe winter weather, Great Lakes storm, infrastructure failure) along this corridor could simultaneously disable multiple top hubs.</li>
+        <li>Despite the dense station coverage in the Northeast Corridor (visible as a thick line of dots from Boston to Washington), no NEC station appears in the top 10 &mdash; the NEC's mesh-like topology means no single station there is a bottleneck on the flow-weighted shortest paths.</li>
+        <li>No Southern or Western station appears in the top 10 under flow-weighted centrality. Those routes carry low passenger volume, so flow-weighted shortest paths rarely traverse them.</li>
+        <li>The Western United States has sparse, long-distance routes with minimal redundancy, but their low ridership keeps their centrality scores low under this weighting.</li>
     </ul>
 </div>
 
@@ -360,8 +379,8 @@
     <p><strong>What it shows:</strong> A scatter plot with degree (number of connections) on the x-axis and betweenness centrality on the y-axis. Each station is a dot; the top 10 hubs are highlighted in red and labeled. A shaded pink region in the upper-left marks the &ldquo;bottleneck zone&rdquo; &mdash; stations with high centrality but low degree.</p>
     <p><strong>Key observations:</strong></p>
     <ul>
-        <li>Most hubs fall in the <strong>bottleneck zone</strong> (upper-left quadrant): high centrality with only 2&ndash;3 connections. These stations are critical not because they connect many lines, but because they sit on the <em>only</em> path between large regions.</li>
-        <li><strong>CHI is an extreme outlier</strong> in the upper-right: both the highest centrality (0.56) and the highest degree (9). It is simultaneously a connector and a bottleneck.</li>
+        <li>Most hubs fall in the <strong>bottleneck zone</strong> (upper-left quadrant): high centrality with only 2&ndash;3 connections. These stations are critical not because they connect many lines, but because they sit on the <em>only</em> flow-weighted shortest path between large regions.</li>
+        <li><strong>CHI is an extreme outlier</strong> in the upper-right: both the highest centrality (0.61) and the highest degree (9). It is simultaneously a connector and a bottleneck.</li>
         <li>The lower-right area (high degree, low centrality) is nearly empty &mdash; there are almost no stations that have many connections without also being structurally important.</li>
         <li>The dense cloud of grey dots at lower-left represents the 500+ pass-through stations that have low degree and low centrality.</li>
     </ul>
@@ -383,29 +402,29 @@
 <hr>
 
 <!-- ====== Section 6 ====== -->
-<h2>6. Actionable Insights</h2>
+<h2>6. Insights &amp; Implications</h2>
 
 <div class="insight-card">
-    <h3>Insight 1: Chicago Union Station is a catastrophic single point of failure</h3>
-    <p>Chicago controls 56% of the network's betweenness centrality &mdash; more than double any other station. It is the only station with degree 9, serving as the sole interchange between nearly all long-distance routes. Any disruption at Chicago (weather, infrastructure failure, labor action, security incident) effectively fragments the national network.</p>
+    <h3>Insight 1: Chicago Union Station is the dominant hub</h3>
+    <p>Chicago's betweenness centrality of <strong>0.61</strong> is roughly <strong>1.4&times; the next-highest</strong> station and <strong>25&times; the network median</strong>. It is the only station with degree 9, serving as the sole interchange between nearly all long-distance routes. Removing CHI alone drops the largest connected component by 24 stations in a single step &mdash; the single most damaging removal anywhere in the network. Any disruption at Chicago (weather, infrastructure failure, labor action, security incident) materially degrades national connectivity.</p>
     <div class="action">
-        <strong>Action:</strong> Prioritize infrastructure hardening and redundancy planning for Chicago Union Station. Develop pre-positioned contingency plans (bus bridges, rerouting protocols) specifically for CHI outages. Consider investment in at least one bypass route that connects Eastern and Western networks without passing through Chicago.
+        <strong>Implication:</strong> Prioritize infrastructure hardening and redundancy planning for Chicago Union Station. Develop pre-positioned contingency plans (bus bridges, rerouting protocols) specifically for CHI outages. Consider investment in at least one bypass route that connects Eastern and Western networks without passing through Chicago.
     </div>
 </div>
 
 <div class="insight-card">
-    <h3>Insight 2: The network is vulnerable to targeted attack but resilient to random failure</h3>
-    <p>Removing 6 stations by centrality drops connectivity to 52%. Removing 10 random stations preserves ~92%. This 40-percentage-point gap is the hallmark of a scale-free network: robust against accidental failures, fragile against informed attacks.</p>
+    <h3>Insight 2: Targeted removal of the top hubs is only marginally worse than random</h3>
+    <p>Removing the top 10 stations by flow-weighted betweenness leaves <strong>459 stations (87.8%)</strong> connected; removing 10 random stations leaves <strong>~482 (92%)</strong>. The gap is only about <strong>4 percentage points</strong>. The reason: the top 10 all lie along a single east&ndash;west corridor, so successive removals are redundant &mdash; each one cuts off the segment the next would have influenced, rather than severing a new part of the network. The glaring exception is CHI itself, which is a genuine articulation point; its removal alone accounts for most of the targeted loss.</p>
     <div class="action">
-        <strong>Action:</strong> Security and resilience investment should be concentrated on the top ~6 hubs, not spread thinly across all 537 stations. Redundancy spending on low-centrality pass-through stations provides negligible resilience benefit.
+        <strong>Implication:</strong> Resilience investment should be disproportionately concentrated on <strong>CHI</strong>, not spread evenly across the top 10. Beyond CHI, the real vulnerability is the <em>corridor</em> (Chicago&ndash;Cleveland&ndash;Buffalo&ndash;Albany), not the individual stations along it &mdash; any single point can be bypassed as long as the corridor is intact.
     </div>
 </div>
 
 <div class="insight-card">
-    <h3>Insight 3: The Midwest corridor is the structural Achilles&rsquo; heel</h3>
-    <p>Eight of the top 10 hubs lie in a tight geographic band from Chicago through Indiana and Ohio. A regional disruption (severe winter storm, Ohio River flooding, widespread power outage) could simultaneously disable multiple critical nodes and cause a network collapse far more severe than the sequential removal analysis suggests.</p>
+    <h3>Insight 3: The Chicago&ndash;Albany corridor is the structural Achilles&rsquo; heel</h3>
+    <p>All 10 top hubs lie along a single east&ndash;west flow axis: Chicago &rarr; northern Indiana &rarr; Ohio &rarr; Buffalo &rarr; Schenectady. This is the combined Lake Shore Limited and Empire Service path, and it carries enough passenger flow that nearly every station on it is at the top of the flow-weighted centrality ranking. A regional disruption along this corridor (severe winter storm, Great Lakes weather, track failure between major cities) could simultaneously affect multiple top stations.</p>
     <div class="action">
-        <strong>Action:</strong> Develop at least one alternate East&ndash;West route that bypasses the Chicago&ndash;Cleveland corridor. Even a single cross-link (for example, connecting Indianapolis to Pittsburgh directly) would substantially reduce the network's dependence on this single corridor.
+        <strong>Implication:</strong> Develop at least one alternate East&ndash;West route that does not traverse the Chicago&ndash;Cleveland&ndash;Buffalo corridor. Even a single cross-link (for example, a Cincinnati&ndash;Pittsburgh connection or a restored Cardinal-style route) would meaningfully reduce the network's dependence on this single long-distance axis.
     </div>
 </div>
 
@@ -413,7 +432,7 @@
     <h3>Insight 4: Most critical stations are bottlenecks, not junctions</h3>
     <p>Stations like SOB, EKH, SKY, and ELY rank in the top 10 by centrality despite having only 2 connections each. Their importance comes entirely from topology &mdash; they sit on the <em>only</em> path between large sections of the network. This means they are fragile by design.</p>
     <div class="action">
-        <strong>Action:</strong> Adding even one bypass edge around a bottleneck station would dramatically reduce its centrality and improve network resilience. Each such addition would be a low-cost, high-impact improvement. Specifically: a bypass connecting the two neighbors of any degree-2 bottleneck would provide an alternate path and cut that station's criticality roughly in half.
+        <strong>Implication:</strong> Adding even one bypass edge around a bottleneck station would dramatically reduce its centrality and improve network resilience. Each such addition would be a low-cost, high-impact improvement. Specifically: a bypass connecting the two neighbors of any degree-2 bottleneck would provide an alternate path and cut that station's criticality roughly in half.
     </div>
 </div>
 
@@ -421,15 +440,15 @@
     <h3>Insight 5: 81% of stations are simple pass-throughs &mdash; the network is linear, not meshed</h3>
     <p>The degree distribution shows the network is composed of long linear chains tied together at a handful of interchange points. This means each route is essentially a single thread: any break in the thread isolates all stations beyond the break point.</p>
     <div class="action">
-        <strong>Action:</strong> Prioritize creating cross-links between existing parallel routes. Each new cross-link converts a fragile linear chain into a more resilient loop. Focus on areas where routes run geographically close but have no connecting service.
+        <strong>Implication:</strong> Prioritize creating cross-links between existing parallel routes. Each new cross-link converts a fragile linear chain into a more resilient loop. Focus on areas where routes run geographically close but have no connecting service.
     </div>
 </div>
 
 <div class="insight-card">
-    <h3>Insight 6: Revenue risk and structural risk are geographically opposite</h3>
-    <p>The highest ridership (NYP&harr;NWK at 240, 36&times; median) is concentrated in the Northeast Corridor, which has mesh-like redundancy and no stations in the top 10 by centrality. The highest structural criticality is in the Midwest, which carries modest ridership. These are distinct vulnerabilities requiring different management strategies.</p>
+    <h3>Insight 6: Revenue risk (NEC) and structural risk (Chicago corridor) are different problems</h3>
+    <p>The highest ridership is concentrated in the Northeast Corridor (NYP&harr;NWK at 240, 36&times; median), which has mesh-like redundancy and no stations in the top 10 by centrality &mdash; a local outage there hurts revenue but doesn't fragment the network. The highest structural criticality is on the Chicago&ndash;Albany long-distance axis, which carries modest ridership per segment but sits on the only east&ndash;west long-distance path. These are two different failure modes requiring different responses.</p>
     <div class="action">
-        <strong>Action:</strong> Maintain separate risk frameworks for NEC financial risk (revenue protection, capacity management) and Midwest structural risk (network connectivity, redundancy investment). A disruption in the NEC primarily affects revenue; a disruption in the Midwest primarily fragments service across the entire national network.
+        <strong>Implication:</strong> Maintain separate risk frameworks for NEC financial risk (revenue protection, capacity management on a dense mesh) and long-distance structural risk (connectivity of a single thin corridor). A disruption in the NEC primarily affects revenue; a disruption on the Chicago&ndash;Albany corridor primarily fragments service across the entire national network.
     </div>
 </div>
 
@@ -443,15 +462,16 @@
         <tr><th>Finding</th><th>Metric</th><th>Value</th><th>Implication</th></tr>
     </thead>
     <tbody>
-        <tr><td>CHI dominance</td><td>Betweenness centrality</td><td>0.561 (18&times; median)</td><td>Single point of failure for the national network</td></tr>
-        <tr><td>Targeted fragility</td><td>Component size after 6 removals</td><td>52% of original</td><td>Coordinated attack on 6 stations halves the network</td></tr>
-        <tr><td>Random resilience</td><td>Component size after 10 removals</td><td>~92% of original</td><td>Accidental station closures are low-risk</td></tr>
+        <tr><td>CHI dominance</td><td>Betweenness centrality</td><td>0.61 (25&times; median)</td><td>Largest single contributor to national connectivity</td></tr>
+        <tr><td>CHI removal impact</td><td>Component size after CHI removed</td><td>95.4% of original</td><td>Single most damaging removal &mdash; drops component by 24 stations</td></tr>
+        <tr><td>Targeted vs random gap</td><td>Component size after 10 removals</td><td>87.8% targeted vs ~92% random</td><td>Only ~4 pp gap &mdash; top hubs cluster on one corridor, so removals are redundant</td></tr>
         <tr><td>Linear topology</td><td>Stations with degree &le; 2</td><td>81% (433 of 537)</td><td>Network is chains, not a mesh &mdash; inherently fragile</td></tr>
-        <tr><td>Midwest concentration</td><td>Top-10 hubs in Midwest</td><td>8 of 10</td><td>Regional event could disable multiple critical nodes</td></tr>
+        <tr><td>Corridor concentration</td><td>Top-10 hubs on Chicago&ndash;Albany axis</td><td>10 of 10</td><td>Flow-weighted centrality is dominated by a single corridor</td></tr>
         <tr><td>NEC ridership dominance</td><td>Top corridor ridership</td><td>240 (36&times; median)</td><td>Revenue is concentrated where structure is resilient</td></tr>
-        <tr><td>Bottleneck pattern</td><td>Top-10 hubs with degree &le; 3</td><td>7 of 10</td><td>Criticality comes from topology, not connectivity</td></tr>
+        <tr><td>Bottleneck pattern</td><td>Top-10 hubs with degree &le; 3</td><td>8 of 10</td><td>Criticality comes from topology, not connectivity</td></tr>
     </tbody>
 </table>
 
 </body>
 </html>
+

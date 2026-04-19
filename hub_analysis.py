@@ -33,8 +33,16 @@ def largest_component_size(graph):
 
 
 def compute_hub_centrality(graph, top_n=10):
-    """Compute betweenness centrality and return the top_n stations sorted descending."""
-    centrality = nx.betweenness_centrality(graph, weight="weight")
+    """Compute betweenness centrality and return the top_n stations sorted descending.
+
+    Edge ``weight`` encodes ridership (higher = busier corridor). NetworkX's
+    betweenness treats ``weight`` as a distance/cost for Dijkstra, so we
+    invert ridership into an edge cost: busy corridors become "short" and
+    shortest paths preferentially route through high-ridership segments.
+    """
+    for u, v, d in graph.edges(data=True):
+        d["cost"] = 1.0 / d["weight"] if d.get("weight", 0) > 0 else float("inf")
+    centrality = nx.betweenness_centrality(graph, weight="cost")
     ranked = sorted(centrality.items(), key=lambda x: x[1], reverse=True)
     return ranked[:top_n], centrality
 
@@ -89,19 +97,20 @@ def plot_robustness(targeted_sizes, random_sizes, max_removals, centrality, outp
             label="Targeted removal (by betweenness)")
 
     # Annotate each targeted removal step with station code.
-    # Per-station offsets tuned to the actual curve shape to prevent
-    # overlaps at x=2/3 (CLE/SOB) and x=8/9 (SKY/ELY) flat regions.
+    # Positions tuned for new top-10: CHI, CLE, SOB, EKH, WTI, TOL, SKY, ELY, BUF, SDY
+    # Ranks 2-8 all sit at y=491 (flat plateau), so alternate above/below.
+    # Rank 10 (SDY) is near the bottom edge — push label clearly above.
     station_offsets = [
-        (0, 24),     # 1 CHI  — above (steep drop)
-        (28, -15),   # 2 CLE  — right-below
-        (-28, 22),   # 3 SOB  — left-above (away from CLE)
-        (0, 28),     # 4 EKH  — above
-        (25, 18),    # 5 WTI  — right-above
-        (-20, 28),   # 6 NOL  — left-above (big drop)
-        (28, 20),    # 7 TOL  — right-above
-        (-35, -18),  # 8 SKY  — far left-below
-        (35, 18),    # 9 ELY  — far right-above (opposite SKY)
-        (18, 25),    # 10 NPV — right-above
+        (0, 22),     # 1 CHI  — above (95% drop)
+        (-8, -20),   # 2 CLE  — below (plateau)
+        (0, 22),     # 3 SOB  — above (plateau)
+        (0, -20),    # 4 EKH  — below (plateau)
+        (0, 22),     # 5 WTI  — above (plateau)
+        (0, -20),    # 6 TOL  — below (plateau)
+        (0, 22),     # 7 SKY  — above (plateau)
+        (8, -20),    # 8 ELY  — below (plateau)
+        (-26, 18),   # 9 BUF  — left-above (92% drop)
+        (-28, 22),   # 10 SDY — left-above (far from bottom)
     ]
     for i, node in enumerate(ranked_nodes):
         pct = targeted_sizes[i + 1] / initial * 100
@@ -289,19 +298,21 @@ def plot_geographic_hubs(graph, centrality, top_n=10, output_path=None):
             transform=ccrs.PlateCarree(), zorder=4,
         )
 
-        # Offset labels with leader lines — positions tuned to the actual
-        # Midwest cluster geography to prevent overlap
+        # Offset labels with leader lines. 8 of the top 10 are packed into
+        # a ~6° longitude band along the IN/OH corridor (lat ~41.5). Fan
+        # labels above and below the corridor, staggered by rank, so
+        # leaders separate clearly.
         label_offsets = {
-            0: (3.5, 2.0),    # CHI — up-right
-            1: (4.0, -2.0),   # CLE — down-right
-            2: (-5.0, 1.5),   # SOB — left and up
-            3: (-1.5, -3.5),  # EKH — below
-            4: (3.0, 3.5),    # WTI — up-right (away from CHI)
-            5: (-1.5, -5.0),  # NOL — well below (already isolated)
-            6: (4.5, -3.5),   # TOL — down-right (away from CLE)
-            7: (-5.5, 3.0),   # SKY — far left and up
-            8: (5.0, 1.0),    # ELY — far right
-            9: (-6.0, -1.0),  # NPV — far left
+            0: (-6.0, 3.0),   # CHI  (lon=-87.6) — NW anchor, up-left
+            1: (3.5, -5.5),   # CLE  (lon=-81.7) — down-right (east end of cluster)
+            2: (-3.0, 5.5),   # SOB  (lon=-86.3) — up
+            3: (-1.5, -5.5),  # EKH  (lon=-86.0) — down
+            4: (0.5, 6.5),    # WTI  (lon=-85.0) — up (higher)
+            5: (1.0, -6.5),   # TOL  (lon=-83.5) — down (lower)
+            6: (3.0, 7.0),    # SKY  (lon=-82.7) — up-right (highest)
+            7: (0.0, -7.5),   # ELY  (lon=-82.1) — down (lowest)
+            8: (2.0, 3.5),    # BUF  (lon=-78.7) — NE
+            9: (3.0, -4.5),   # SDY  (lon=-73.9) — down-right
         }
         for i, n in enumerate(hub_nodes):
             dx, dy = label_offsets.get(i, (3.0, 1.5))
@@ -355,19 +366,20 @@ def plot_centrality_vs_degree(graph, centrality, top_n=10, output_path=None):
     ax.scatter(jittered_degrees[non_hub_mask], cent_values[non_hub_mask],
               s=20, alpha=0.4, color="#7f8c8d", zorder=2)
 
-    # Plot and label top hubs with manually-tuned offsets based on known
-    # data layout (most hubs cluster at degree 2-3, centrality ~0.24-0.26)
+    # Plot and label top hubs. New top-10 degrees: CHI=9, CLE=3, SOB=2,
+    # EKH=2, WTI=3, TOL=3, SKY=2, ELY=2, BUF=3, SDY=4. Most land in the
+    # degree=2–3 column around centrality ~0.43, so spread labels radially.
     hub_offsets = {
-        0: (35, 20),    # CHI  — far right (degree 9, already isolated)
-        1: (18, 24),    # CLE  — right-up high (separate from TOL)
-        2: (-40, 22),   # SOB  — far left-up (degree ~2 cluster)
-        3: (-40, -18),  # EKH  — far left-down (degree ~2 cluster)
-        4: (-22, -22),  # WTI  — left-down (avoid TOL overlap)
-        5: (18, 16),    # NOL  — right-up (degree 4, isolated)
-        6: (22, -22),   # TOL  — right-down (opposite CLE direction)
-        7: (-40, 8),    # SKY  — far left-up
-        8: (-40, -8),   # ELY  — far left-down
-        9: (18, -16),   # NPV  — right-down (degree 5, isolated)
+        0: (-35, 5),    # CHI  — left of marker (it's at far right, degree 9)
+        1: (28, 14),    # CLE  — up-right (degree 3 cluster)
+        2: (-34, 14),   # SOB  — up-left (degree 2 cluster)
+        3: (-34, -14),  # EKH  — down-left (degree 2 cluster)
+        4: (-22, -24),  # WTI  — down-left (degree 3 cluster)
+        5: (34, -8),    # TOL  — right (degree 3 cluster)
+        6: (-22, -22),  # SKY  — down-left (degree 2 cluster)
+        7: (-38, -5),   # ELY  — far left (degree 2 cluster)
+        8: (20, 22),    # BUF  — up-right (degree 3 cluster)
+        9: (24, -18),   # SDY  — down-right (degree 4, more isolated)
     }
     for i, hub in enumerate(ranked[:top_n]):
         idx = nodes.index(hub)
