@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm, colors
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import networkx as nx
 
 
 def display_graph(
@@ -82,7 +83,7 @@ def display_graph(
             normalized = weight_norm(weight)
             color = edge_cmap(0.35 + 0.6 * normalized)
             width = min_edge_width + (max_edge_width - min_edge_width) * (
-                normalized ** 0.7
+                normalized**0.7
             )
         else:
             color = "#b03a2e"
@@ -113,6 +114,118 @@ def display_graph(
         )
 
     ax.set_title(title, fontsize=18, pad=14)
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+
+    if show:
+        plt.show()
+
+    return fig, ax
+
+
+def display_graph_abstract(
+    graph,
+    output_path=None,
+    title="Amtrak Network (Abstract Layout)",
+    node_size=50,
+    node_color="#1f4e79",
+    edge_alpha=0.6,
+    min_edge_width=0.6,
+    max_edge_width=3.0,
+    show=True,
+    seed=42,
+):
+    """
+    Display network as a force-directed layout without geographic coordinates.
+    Edges are colored by weight using the same scheme as the map display.
+
+    Args:
+        graph: NetworkX graph object
+        output_path: Path to save figure (optional)
+        title: Figure title
+        node_size: Size of nodes
+        node_color: Color of nodes
+        edge_alpha: Transparency of edges
+        min_edge_width: Minimum edge width
+        max_edge_width: Maximum edge width
+        show: Whether to display the plot
+        seed: Random seed for reproducible layout
+    """
+    # Compute spring layout
+    pos = nx.spring_layout(graph, k=0.5, iterations=50, seed=seed, weight="weight")
+
+    # Extract edge weights and create normalization
+    edge_data = [
+        (u, v, attrs.get("weight", 1)) for u, v, attrs in graph.edges(data=True)
+    ]
+    edge_weights = [weight for _, _, weight in edge_data]
+
+    if edge_weights:
+        weight_norm = colors.LogNorm(
+            vmin=max(min(edge_weights), 1e-6), vmax=max(edge_weights)
+        )
+        edge_cmap = cm.get_cmap("YlOrRd")
+    else:
+        weight_norm = None
+        edge_cmap = None
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(14, 14))
+    ax.set_facecolor("#f5f5f5")
+
+    # Draw edges sorted by weight (lightest first)
+    for u, v, weight in sorted(edge_data, key=lambda edge: edge[2]):
+        if weight_norm is not None:
+            normalized = weight_norm(weight)
+            color = edge_cmap(0.35 + 0.6 * normalized)
+            width = min_edge_width + (max_edge_width - min_edge_width) * (
+                normalized**0.7
+            )
+        else:
+            color = "#b03a2e"
+            width = min_edge_width
+
+        x = [pos[u][0], pos[v][0]]
+        y = [pos[u][1], pos[v][1]]
+        ax.plot(
+            x,
+            y,
+            color=color,
+            alpha=edge_alpha,
+            linewidth=width,
+            solid_capstyle="round",
+            zorder=2,
+        )
+
+    # Draw nodes
+    xs = [pos[node][0] for node in graph.nodes()]
+    ys = [pos[node][1] for node in graph.nodes()]
+    ax.scatter(
+        xs,
+        ys,
+        s=node_size,
+        color=node_color,
+        linewidths=0.5,
+        edgecolors="#ffffff",
+        zorder=3,
+    )
+
+    # Add node labels
+    for node, (x, y) in pos.items():
+        ax.text(
+            x,
+            y,
+            node,
+            fontsize=7,
+            ha="center",
+            va="center",
+            zorder=4,
+        )
+
+    ax.set_title(title, fontsize=18, pad=14)
+    ax.axis("off")
     plt.tight_layout()
 
     if output_path:

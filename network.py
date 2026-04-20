@@ -126,9 +126,10 @@ G, route_graphs, missing_nodes, route_missing_nodes = build_network()
 
 
 if __name__ == "__main__":
-    from display import display_graph
+    from display import display_graph, display_graph_abstract
 
     if missing_nodes:
         print("Missing coordinates for:", ", ".join(sorted(missing_nodes)))
 
     display_graph(G, output_path="network-map.png")
+    display_graph_abstract(G, output_path="network-abstract.png")
