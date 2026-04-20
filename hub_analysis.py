@@ -33,12 +33,27 @@ def largest_component_size(graph):
 
 
 def compute_hub_centrality(graph, top_n=10):
-    """Compute betweenness centrality and return the top_n stations sorted descending.
+    """Compute unweighted betweenness centrality and return the top_n stations sorted descending.
 
-    Edge ``weight`` encodes ridership (higher = busier corridor). NetworkX's
-    betweenness treats ``weight`` as a distance/cost for Dijkstra, so we
-    invert ridership into an edge cost: busy corridors become "short" and
+    We use the standard (unweighted) definition: the fraction of all-pairs
+    shortest paths that pass through each node, measured in hops. This is
+    the canonical intro-networks metric and avoids the need to justify
+    an arbitrary functional form for converting ridership into edge cost.
+    See ``compute_hub_centrality_flow_weighted`` for a sensitivity check.
+    """
+    centrality = nx.betweenness_centrality(graph)
+    ranked = sorted(centrality.items(), key=lambda x: x[1], reverse=True)
+    return ranked[:top_n], centrality
+
+
+def compute_hub_centrality_flow_weighted(graph, top_n=10):
+    """Flow-weighted sensitivity variant: cost = 1 / ridership.
+
+    Edge ``weight`` encodes ridership (higher = busier). NetworkX's
+    betweenness treats ``weight`` as a Dijkstra distance (higher = farther),
+    so we invert ridership into a cost. Busy corridors become "short" and
     shortest paths preferentially route through high-ridership segments.
+    Use this only as a robustness check on the unweighted ranking.
     """
     for u, v, d in graph.edges(data=True):
         d["cost"] = 1.0 / d["weight"] if d.get("weight", 0) > 0 else float("inf")
@@ -97,9 +112,9 @@ def plot_robustness(targeted_sizes, random_sizes, max_removals, centrality, outp
             label="Targeted removal (by betweenness)")
 
     # Annotate each targeted removal step with station code.
-    # Positions tuned for new top-10: CHI, CLE, SOB, EKH, WTI, TOL, SKY, ELY, BUF, SDY
-    # Ranks 2-8 all sit at y=491 (flat plateau), so alternate above/below.
-    # Rank 10 (SDY) is near the bottom edge — push label clearly above.
+    # Top 10: CHI, CLE, SOB, EKH, WTI, TOL, SKY, ELY, NPV, SAC
+    # Ranks 2-8 sit at y=491 (flat plateau); rank 9 (NPV) at 490;
+    # rank 10 (SAC) plunges to 424 (~81%) — annotate above that drop.
     station_offsets = [
         (0, 22),     # 1 CHI  — above (95% drop)
         (-8, -20),   # 2 CLE  — below (plateau)
@@ -109,8 +124,8 @@ def plot_robustness(targeted_sizes, random_sizes, max_removals, centrality, outp
         (0, -20),    # 6 TOL  — below (plateau)
         (0, 22),     # 7 SKY  — above (plateau)
         (8, -20),    # 8 ELY  — below (plateau)
-        (-26, 18),   # 9 BUF  — left-above (92% drop)
-        (-28, 22),   # 10 SDY — left-above (far from bottom)
+        (-20, 20),   # 9 NPV  — left-above (tiny drop)
+        (-25, 28),   # 10 SAC — left-above (big drop to 81%)
     ]
     for i, node in enumerate(ranked_nodes):
         pct = targeted_sizes[i + 1] / initial * 100
@@ -299,20 +314,19 @@ def plot_geographic_hubs(graph, centrality, top_n=10, output_path=None):
         )
 
         # Offset labels with leader lines. 8 of the top 10 are packed into
-        # a ~6° longitude band along the IN/OH corridor (lat ~41.5). Fan
-        # labels above and below the corridor, staggered by rank, so
-        # leaders separate clearly.
+        # a ~6° longitude band along the IN/OH corridor (lat ~41.5). NPV
+        # sits just west of CHI; SAC is in California (far west).
         label_offsets = {
-            0: (-6.0, 3.0),   # CHI  (lon=-87.6) — NW anchor, up-left
-            1: (3.5, -5.5),   # CLE  (lon=-81.7) — down-right (east end of cluster)
+            0: (-6.0, 3.0),   # CHI  (lon=-87.6) — up-left
+            1: (3.5, -5.5),   # CLE  (lon=-81.7) — down-right
             2: (-3.0, 5.5),   # SOB  (lon=-86.3) — up
             3: (-1.5, -5.5),  # EKH  (lon=-86.0) — down
             4: (0.5, 6.5),    # WTI  (lon=-85.0) — up (higher)
             5: (1.0, -6.5),   # TOL  (lon=-83.5) — down (lower)
             6: (3.0, 7.0),    # SKY  (lon=-82.7) — up-right (highest)
             7: (0.0, -7.5),   # ELY  (lon=-82.1) — down (lowest)
-            8: (2.0, 3.5),    # BUF  (lon=-78.7) — NE
-            9: (3.0, -4.5),   # SDY  (lon=-73.9) — down-right
+            8: (-5.0, -3.0),  # NPV  (lon=-88.2) — down-left (just W of CHI)
+            9: (2.5, 3.5),    # SAC  (lon=-121.5) — up-right (isolated in CA)
         }
         for i, n in enumerate(hub_nodes):
             dx, dy = label_offsets.get(i, (3.0, 1.5))
@@ -366,11 +380,10 @@ def plot_centrality_vs_degree(graph, centrality, top_n=10, output_path=None):
     ax.scatter(jittered_degrees[non_hub_mask], cent_values[non_hub_mask],
               s=20, alpha=0.4, color="#7f8c8d", zorder=2)
 
-    # Plot and label top hubs. New top-10 degrees: CHI=9, CLE=3, SOB=2,
-    # EKH=2, WTI=3, TOL=3, SKY=2, ELY=2, BUF=3, SDY=4. Most land in the
-    # degree=2–3 column around centrality ~0.43, so spread labels radially.
+    # Plot and label top hubs. Unweighted top-10 degrees: CHI=9, CLE=3,
+    # SOB=2, EKH=2, WTI=3, TOL=3, SKY=2, ELY=2, NPV=5, SAC=4.
     hub_offsets = {
-        0: (-35, 5),    # CHI  — left of marker (it's at far right, degree 9)
+        0: (-35, 5),    # CHI  — left of marker (degree 9, far right)
         1: (28, 14),    # CLE  — up-right (degree 3 cluster)
         2: (-34, 14),   # SOB  — up-left (degree 2 cluster)
         3: (-34, -14),  # EKH  — down-left (degree 2 cluster)
@@ -378,8 +391,8 @@ def plot_centrality_vs_degree(graph, centrality, top_n=10, output_path=None):
         5: (34, -8),    # TOL  — right (degree 3 cluster)
         6: (-22, -22),  # SKY  — down-left (degree 2 cluster)
         7: (-38, -5),   # ELY  — far left (degree 2 cluster)
-        8: (20, 22),    # BUF  — up-right (degree 3 cluster)
-        9: (24, -18),   # SDY  — down-right (degree 4, more isolated)
+        8: (22, 18),    # NPV  — up-right (degree 5, more isolated)
+        9: (20, -20),   # SAC  — down-right (degree 4)
     }
     for i, hub in enumerate(ranked[:top_n]):
         idx = nodes.index(hub)
